@@ -51,12 +51,12 @@ expect(new LongLongLongLongLongRange([0, 0], [0, 0])).toEqualAtomLongLongLongLon
 
 
 =====================================output=====================================
-h(
-  f(
-    g(() => {
-      a;
-    })
-  )
+h(f(
+  g(() => {
+    a;
+  })
+)
+
 );
 
 deepCopyAndAsyncMapLeavesA(

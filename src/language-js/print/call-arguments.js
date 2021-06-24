@@ -84,9 +84,20 @@ function printCallArguments(path, options, print) {
       ? ","
       : "";
 
+  const groupHyperScriptTag = () =>
+    node.callee && ["h", "m"].includes(node.callee.name)
+      ? group(["(", printedArguments.shift()])
+      : "(";
+
   function allArgsBrokenOut() {
     return group(
-      ["(", indent([line, ...printedArguments]), maybeTrailingComma, line, ")"],
+      [
+        groupHyperScriptTag(),
+        indent([line, ...printedArguments]),
+        maybeTrailingComma,
+        line,
+        ")",
+      ],
       { shouldBreak: true }
     );
   }
@@ -166,7 +177,7 @@ function printCallArguments(path, options, print) {
   }
 
   const contents = [
-    "(",
+    groupHyperScriptTag(),
     indent([softline, ...printedArguments]),
     ifBreak(maybeTrailingComma),
     softline,

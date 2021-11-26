@@ -6,11 +6,11 @@ const assert = require("assert");
 const {
   printDanglingComments,
   printCommentsSeparately,
-} = require("../../main/comments");
-const getLast = require("../../utils/get-last");
+} = require("../../main/comments.js");
+const getLast = require("../../utils/get-last.js");
 const {
   getNextNonSpaceNonCommentCharacterIndex,
-} = require("../../common/util");
+} = require("../../common/util.js");
 const {
   builders: {
     line,
@@ -23,8 +23,8 @@ const {
     indentIfBreak,
   },
   utils: { removeLines, willBreak },
-} = require("../../document");
-const { ArgExpansionBailout } = require("../../common/errors");
+} = require("../../document/index.js");
+const { ArgExpansionBailout } = require("../../common/errors.js");
 const {
   getFunctionParameters,
   hasLeadingOwnLineComment,
@@ -43,14 +43,14 @@ const {
   getCallArguments,
   hasNakedLeftSide,
   getLeftSide,
-} = require("../utils");
-const { locEnd } = require("../loc");
+} = require("../utils.js");
+const { locEnd } = require("../loc.js");
 const {
   printFunctionParameters,
   shouldGroupFunctionParameters,
-} = require("./function-parameters");
-const { printPropertyKey } = require("./property");
-const { printFunctionTypeParameters } = require("./misc");
+} = require("./function-parameters.js");
+const { printPropertyKey } = require("./property.js");
+const { printFunctionTypeParameters } = require("./misc.js");
 
 function printFunction(path, print, options, args) {
   const node = path.getValue();
@@ -252,12 +252,19 @@ function printArrowChain(
   const isAssignmentRhs = Boolean(args && args.assignmentLayout);
   const shouldPutBodyOnSeparateLine =
     tailNode.body.type !== "BlockStatement" &&
-    tailNode.body.type !== "ObjectExpression";
+    tailNode.body.type !== "ObjectExpression" &&
+    tailNode.body.type !== "SequenceExpression";
   const shouldBreakBeforeChain =
     (isCallee && shouldPutBodyOnSeparateLine) ||
     (args && args.assignmentLayout === "chain-tail-arrow-chain");
 
   const groupId = Symbol("arrow-chain");
+
+  // We handle sequence expressions as the body of arrows specially,
+  // so that the required parentheses end up on their own lines.
+  if (tailNode.body.type === "SequenceExpression") {
+    bodyDoc = group(["(", indent([softline, bodyDoc]), softline, ")"]);
+  }
 
   return group([
     group(

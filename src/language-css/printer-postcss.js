@@ -1,6 +1,6 @@
 "use strict";
 
-const getLast = require("../utils/get-last");
+const getLast = require("../utils/get-last.js");
 const {
   printNumber,
   printString,
@@ -8,7 +8,7 @@ const {
   isFrontMatterNode,
   isNextLineEmpty,
   isNonEmptyArray,
-} = require("../common/util");
+} = require("../common/util.js");
 const {
   builders: {
     join,
@@ -23,10 +23,10 @@ const {
     breakParent,
   },
   utils: { removeLines, getDocParts },
-} = require("../document");
-const clean = require("./clean");
-const embed = require("./embed");
-const { insertPragma } = require("./pragma");
+} = require("../document/index.js");
+const clean = require("./clean.js");
+const embed = require("./embed.js");
+const { insertPragma } = require("./pragma.js");
 
 const {
   getAncestorNode,
@@ -74,8 +74,10 @@ const {
   isColorAdjusterFuncNode,
   lastLineHasInlineComment,
   isAtWordPlaceholderNode,
-} = require("./utils");
-const { locStart, locEnd } = require("./loc");
+  isConfigurationNode,
+  isParenGroupNode,
+} = require("./utils.js");
+const { locStart, locEnd } = require("./loc.js");
 
 function shouldPrintComma(options) {
   return options.trailingComma === "es5" || options.trailingComma === "all";
@@ -550,6 +552,20 @@ function genericPrint(path, options, print) {
           continue;
         }
 
+        // Ignore SCSS @forward wildcard suffix
+        if (
+          insideAtRuleNode(path, "forward") &&
+          iNode.type === "value-word" &&
+          iNode.value &&
+          iPrevNode !== undefined &&
+          iPrevNode.type === "value-word" &&
+          iPrevNode.value === "as" &&
+          iNextNode.type === "value-operator" &&
+          iNextNode.value === "*"
+        ) {
+          continue;
+        }
+
         // Ignore after latest node (i.e. before semicolon)
         if (!iNextNode) {
           continue;
@@ -794,6 +810,20 @@ function genericPrint(path, options, print) {
           continue;
         }
 
+        if (
+          isAtWordPlaceholderNode(iNode) &&
+          isParenGroupNode(iNextNode) &&
+          locEnd(iNode) === locStart(iNextNode.open)
+        ) {
+          parts.push(softline);
+          continue;
+        }
+
+        if (iNode.value === "with" && isParenGroupNode(iNextNode)) {
+          parts.push(" ");
+          continue;
+        }
+
         // Be default all values go through `line`
         parts.push(line);
       }
@@ -859,6 +889,10 @@ function genericPrint(path, options, print) {
       const lastItem = getLast(node.groups);
       const isLastItemComment = lastItem && lastItem.type === "value-comment";
       const isKey = isKeyInValuePairNode(node, parentNode);
+      const isConfiguration = isConfigurationNode(node, parentNode);
+
+      const shouldBreak = isConfiguration || (isSCSSMapItem && !isKey);
+      const shouldDedent = isConfiguration || isKey;
 
       const printed = group(
         [
@@ -902,11 +936,11 @@ function genericPrint(path, options, print) {
           node.close ? print("close") : "",
         ],
         {
-          shouldBreak: isSCSSMapItem && !isKey,
+          shouldBreak,
         }
       );
 
-      return isKey ? dedent(printed) : printed;
+      return shouldDedent ? dedent(printed) : printed;
     }
     case "value-func": {
       return [

@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const stripAnsi = require("strip-ansi");
-const { prettierCli, thirdParty } = require("./env");
+const { prettierCli, thirdParty } = require("./env.js");
 
 async function run(dir, args, options) {
   args = Array.isArray(args) ? args : [args];
@@ -188,7 +188,7 @@ function runPrettier(dir, args = [], options = {}) {
             : result[name];
         if (name in testOptions) {
           if (name === "status" && testOptions[name] === "non-zero") {
-            expect(value).not.toEqual(0);
+            expect(value).not.toBe(0);
           } else {
             expect(value).toEqual(testOptions[name]);
           }

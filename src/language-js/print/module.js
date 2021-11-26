@@ -1,22 +1,22 @@
 "use strict";
 
-const { isNonEmptyArray } = require("../../common/util");
+const { isNonEmptyArray } = require("../../common/util.js");
 const {
   builders: { softline, group, indent, join, line, ifBreak, hardline },
-} = require("../../document");
-const { printDanglingComments } = require("../../main/comments");
+} = require("../../document/index.js");
+const { printDanglingComments } = require("../../main/comments.js");
 
 const {
   hasComment,
   CommentCheckFlags,
   shouldPrintComma,
   needsHardlineAfterDanglingComment,
-} = require("../utils");
-const { locStart, hasSameLoc } = require("../loc");
+} = require("../utils.js");
+const { locStart, hasSameLoc } = require("../loc.js");
 const {
   hasDecoratorsBeforeExport,
   printDecoratorsBeforeExport,
-} = require("./decorators");
+} = require("./decorators.js");
 
 /**
  * @typedef {import("../../document").Doc} Doc
@@ -279,11 +279,16 @@ function printImportAssertions(path, options, print) {
 function printModuleSpecifier(path, options, print) {
   const node = path.getNode();
 
-  const { type, importKind } = node;
-  /** @type{Doc[]} */
+  const { type } = node;
+
+  /** @type {Doc[]} */
   const parts = [];
-  if (type === "ImportSpecifier" && importKind) {
-    parts.push(importKind, " ");
+
+  /** @type {"type" | "typeof" | "value"} */
+  const kind = type === "ImportSpecifier" ? node.importKind : node.exportKind;
+
+  if (kind && kind !== "value") {
+    parts.push(kind, " ");
   }
 
   const isImport = type.startsWith("Import");

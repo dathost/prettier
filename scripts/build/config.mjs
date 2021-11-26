@@ -13,7 +13,6 @@ import path from "node:path";
  * @property {Object.<string, string | {code: string}>} replaceModule - module replacement path or code
  * @property {Object.<string, string>} replace - map of strings to replace when processing the bundle
  * @property {string[]} babelPlugins - babel plugins
- * @property {Object?} terserOptions - options for `terser`
  * @property {boolean?} minify - minify
 
  * @typedef {Object} CommonJSConfig
@@ -23,17 +22,17 @@ import path from "node:path";
 /** @type {Bundle[]} */
 const parsers = [
   {
-    input: "src/language-js/parser-babel.js",
+    input: "src/language-js/parse/babel.js",
   },
   {
-    input: "src/language-js/parser-flow.js",
+    input: "src/language-js/parse/flow.js",
     replace: {
       // `flow-parser` use this for `globalThis`, can't work in strictMode
       "(function(){return this}())": '(new Function("return this")())',
     },
   },
   {
-    input: "src/language-js/parser-typescript.js",
+    input: "src/language-js/parse/typescript.js",
     replace: {
       // `typescript/lib/typescript.js` expose extra global objects
       // `TypeScript`, `toolsVersion`, `globalThis`
@@ -47,36 +46,35 @@ const parsers = [
       // `rollup-plugin-polyfill-node` don't have polyfill for these modules
       'require("perf_hooks")': "{}",
       'require("inspector")': "{}",
+      // Dynamic `require()`s
+      "ts.sys && ts.sys.require": "false",
+      "require(etwModulePath)": "undefined",
+      'require("source-map-support").install()': "",
+      "require(modulePath)": "undefined",
+      // `node-semver` can't work with `@rollup/plugin-commonjs>=19.0.0`
+      // https://github.com/rollup/plugins/issues/879
+      // https://github.com/npm/node-semver/issues/381
+      "typescriptVersionIsAtLeast[version] = semverCheck(version);":
+        "typescriptVersionIsAtLeast[version] = true;",
     },
   },
   {
-    input: "src/language-js/parser-espree.js",
+    input: "src/language-js/parse/espree.js",
   },
   {
-    input: "src/language-js/parser-meriyah.js",
+    input: "src/language-js/parse/meriyah.js",
   },
   {
-    input: "src/language-js/parser-angular.js",
+    input: "src/language-js/parse/angular.js",
   },
   {
     input: "src/language-css/parser-postcss.js",
     // postcss has dependency cycles that don't work with rollup
     bundler: "webpack",
-    terserOptions: {
-      // prevent terser generate extra .LICENSE file
-      extractComments: false,
-      terserOptions: {
-        // prevent U+FFFE in the output
-        output: {
-          ascii_only: true,
-        },
-        mangle: {
-          // postcss need keep_fnames when minify
-          keep_fnames: true,
-          // we don't transform class anymore, so we need keep_classnames too
-          keep_classnames: true,
-        },
-      },
+    replace: {
+      // `postcss-values-parser` uses constructor.name, it will be changed by rollup or terser
+      // https://github.com/shellscape/postcss-values-parser/blob/c00f858ab8c86ce9f06fdb702e8f26376f467248/lib/parser.js#L499
+      "node.constructor.name === 'Word'": "node.type === 'word'",
     },
   },
   {
@@ -102,15 +100,19 @@ const parsers = [
   {
     input: "src/language-yaml/parser-yaml.js",
   },
-].map((bundle) => ({
-  type: "plugin",
-  target: "universal",
-  name: `prettierPlugins.${
-    bundle.input.match(/parser-(?<name>.*?)\.js$/).groups.name
-  }`,
-  output: path.basename(bundle.input),
-  ...bundle,
-}));
+].map((bundle) => {
+  const { name } = bundle.input.match(
+    /(?:parser-|parse\/)(?<name>.*?)\.js$/
+  ).groups;
+
+  return {
+    type: "plugin",
+    target: "universal",
+    name: `prettierPlugins.${name}`,
+    output: `parser-${name}.js`,
+    ...bundle,
+  };
+});
 
 /** @type {Bundle[]} */
 const coreBundles = [
@@ -153,4 +155,5 @@ const coreBundles = [
   ...bundle,
 }));
 
-export default [...coreBundles, ...parsers];
+const configs = [...coreBundles, ...parsers];
+export default configs;

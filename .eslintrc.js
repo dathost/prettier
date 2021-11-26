@@ -4,9 +4,10 @@ const { isCI } = require("ci-info");
 module.exports = {
   root: true,
   env: {
-    es2020: true,
+    es2021: true,
     node: true,
   },
+  reportUnusedDisableDirectives: true,
   extends: ["eslint:recommended", "prettier"],
   plugins: ["prettier-internal-rules", "import", "regexp", "unicorn"],
   settings: {
@@ -17,13 +18,6 @@ module.exports = {
     curly: "error",
     "dot-notation": "error",
     eqeqeq: "error",
-    "import/no-extraneous-dependencies": [
-      "error",
-      {
-        devDependencies: ["tests*/**", "scripts/**"],
-      },
-    ],
-    "import/order": "error",
     "no-console": isCI ? "error" : "off",
     "no-else-return": [
       "error",
@@ -77,7 +71,6 @@ module.exports = {
     "prefer-rest-params": "error",
     "prefer-spread": "error",
     "prettier-internal-rules/jsx-identifier-case": "error",
-    "prettier-internal-rules/require-json-extensions": "error",
     "prettier-internal-rules/no-identifier-n": "error",
     quotes: [
       "error",
@@ -96,18 +89,38 @@ module.exports = {
         exceptRange: true,
       },
     ],
+
+    "import/extensions": ["error", "ignorePackages"],
+    "import/no-extraneous-dependencies": [
+      "error",
+      {
+        devDependencies: ["tests*/**", "scripts/**"],
+      },
+    ],
+    "import/order": "error",
+    "import/no-anonymous-default-export": "error",
+
     "regexp/match-any": [
       "error",
       {
         allows: ["dotAll"],
       },
     ],
-    "regexp/no-useless-flag": "error",
+    "regexp/no-unused-capturing-group": "error",
+    "regexp/no-useless-flag": [
+      "error",
+      {
+        strictTypes: false,
+      },
+    ],
+
     "unicorn/better-regex": "error",
     "unicorn/explicit-length-check": "error",
     "unicorn/new-for-builtins": "error",
     "unicorn/no-array-for-each": "error",
     "unicorn/no-array-push-push": "error",
+    "unicorn/no-new-array": "error",
+    "unicorn/no-useless-length-check": "error",
     "unicorn/no-useless-undefined": "error",
     "unicorn/prefer-array-flat": [
       "error",
@@ -116,12 +129,15 @@ module.exports = {
       },
     ],
     "unicorn/prefer-array-flat-map": "error",
+    "unicorn/prefer-array-some": "error",
     "unicorn/prefer-includes": "error",
     "unicorn/prefer-number-properties": "error",
     "unicorn/prefer-optional-catch-binding": "error",
     "unicorn/prefer-regexp-test": "error",
     "unicorn/prefer-spread": "error",
     "unicorn/prefer-string-slice": "error",
+    "unicorn/prefer-string-starts-ends-with": "error",
+    "unicorn/prefer-type-error": "error",
   },
   overrides: [
     {
@@ -131,7 +147,7 @@ module.exports = {
       },
     },
     {
-      files: ["**/*.mjs"],
+      files: ["**/*.mjs", "scripts/release/**/*.js"],
       parserOptions: {
         sourceType: "module",
       },
@@ -145,6 +161,7 @@ module.exports = {
         "tests/format/**/jsfmt.spec.js",
         "tests/config/**/*.js",
         "tests/integration/**/*.js",
+        "scripts/release/__tests__/**/*.spec.js",
       ],
       env: {
         jest: true,
@@ -157,6 +174,7 @@ module.exports = {
             alwaysAwait: true,
           },
         ],
+        "jest/prefer-to-be": "error",
       },
     },
     {
@@ -217,12 +235,37 @@ module.exports = {
             file: "src/language-js/utils.js",
             functions: ["hasComment", "getComments"],
           },
-          "src/language-js/parse-postprocess.js",
-          "src/language-js/parser-babel.js",
-          "src/language-js/parser-meriyah.js",
           "src/language-js/pragma.js",
-          "src/language-js/parser/json.js",
+          "src/language-js/parse/postprocess/*.js",
+          "src/language-js/parse/babel.js",
+          "src/language-js/parse/meriyah.js",
+          "src/language-js/parse/json.js",
         ],
+      },
+    },
+    {
+      files: ["website/**/*"],
+      env: {
+        browser: true,
+        worker: true,
+      },
+      extends: ["plugin:react/recommended"],
+      settings: {
+        react: {
+          version: "17",
+        },
+      },
+      rules: {
+        "import/no-extraneous-dependencies": "off",
+        "react/display-name": "off",
+        "react/no-deprecated": "off",
+        "react/prop-types": "off",
+      },
+    },
+    {
+      files: ["website/playground/**/*"],
+      parserOptions: {
+        sourceType: "module",
       },
     },
   ],

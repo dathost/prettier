@@ -1,7 +1,7 @@
 "use strict";
 
 const stripAnsi = require("strip-ansi");
-const runPrettier = require("../runPrettier");
+const runPrettier = require("../runPrettier.js");
 
 test("do not show logs with --loglevel silent", async () => {
   await runPrettierWithLogLevel("silent", null);
@@ -47,7 +47,7 @@ async function runPrettierWithLogLevel(logLevel, patterns) {
     "not-found.js",
   ]);
 
-  expect(await result.status).toEqual(2);
+  expect(await result.status).toBe(2);
 
   const stderr = stripAnsi(await result.stderr);
 

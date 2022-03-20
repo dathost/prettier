@@ -1,11 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import createEsmUtils from "esm-utils";
-import builtinModules from "builtin-modules";
 import * as babel from "@babel/core";
 import esbuild from "esbuild";
 import { NodeModulesPolyfillPlugin as esbuildPluginNodeModulePolyfills } from "@esbuild-plugins/node-modules-polyfill";
-import esbuildPluginTextReplace from "esbuild-plugin-text-replace";
 import browserslistToEsbuild from "browserslist-to-esbuild";
 import { PROJECT_ROOT, DIST_DIR } from "../utils/index.mjs";
 import esbuildPluginEvaluate from "./esbuild-plugins/evaluate.mjs";
@@ -13,13 +11,13 @@ import esbuildPluginReplaceModule from "./esbuild-plugins/replace-module.mjs";
 import esbuildPluginLicense from "./esbuild-plugins/license.mjs";
 import esbuildPluginUmd from "./esbuild-plugins/umd.mjs";
 import esbuildPluginVisualizer from "./esbuild-plugins/visualizer.mjs";
+import esbuildPluginThrowWarnings from "./esbuild-plugins/throw-warnings.mjs";
 import bundles from "./config.mjs";
 
 const { __dirname, readJsonSync, require } = createEsmUtils(import.meta);
 const packageJson = readJsonSync("../../package.json");
 
 const umdTarget = browserslistToEsbuild(packageJson.browserslist);
-const EMPTY_MODULE_REPLACEMENT = { contents: "" };
 
 function getBabelConfig(bundle) {
   const config = {
@@ -68,11 +66,23 @@ function getBabelConfig(bundle) {
   return config;
 }
 
+const bundledFiles = [
+  ...bundles,
+  { input: "package.json", output: "package.json" },
+].map(({ input, output }) => ({
+  input: path.join(PROJECT_ROOT, input),
+  output: `./${output}`,
+}));
+
 function* getEsbuildOptions(bundle, buildOptions) {
-  const replaceStrings = {
+  const replaceModule = [
     // `tslib` exports global variables
-    "createExporter(root": "createExporter({}",
-  };
+    {
+      module: require.resolve("tslib"),
+      find: "factory(createExporter(root",
+      replacement: "factory(createExporter({}",
+    },
+  ];
 
   const define = {
     "process.env.PRETTIER_TARGET": JSON.stringify(bundle.target),
@@ -82,7 +92,11 @@ function* getEsbuildOptions(bundle, buildOptions) {
   if (bundle.target === "universal") {
     // We can't reference `process` in UMD bundles and this is
     // an undocumented "feature"
-    replaceStrings["process.env.PRETTIER_DEBUG"] = "globalThis.PRETTIER_DEBUG";
+    replaceModule.push({
+      module: "*",
+      find: "process.env.PRETTIER_DEBUG",
+      replacement: "globalThis.PRETTIER_DEBUG",
+    });
 
     define.process = JSON.stringify({ env: {}, argv: [] });
 
@@ -95,28 +109,20 @@ function* getEsbuildOptions(bundle, buildOptions) {
     define.__dirname = JSON.stringify("/prettier-security-dirname-placeholder");
   }
 
-  const replaceModule = {};
   // Replace other bundled files
   if (bundle.target === "node") {
-    // Replace package.json with dynamic `require("./package.json")`
-    replaceModule[path.join(PROJECT_ROOT, "package.json")] = {
-      path: "./package.json",
-      external: true,
-    };
-
-    // Dynamic require bundled files
-    for (const item of bundles) {
-      if (item.input !== bundle.input) {
-        replaceModule[path.join(PROJECT_ROOT, item.input)] = `./${item.output}`;
-      }
+    // Replace bundled files and `package.json` with dynamic `require()`
+    for (const { input, output } of bundledFiles) {
+      replaceModule.push({ module: input, external: output });
     }
   } else {
     // Universal bundle only use version info from package.json
     // Replace package.json with `{version: "{VERSION}"}`
-    replaceModule[path.join(PROJECT_ROOT, "package.json")] = {
-      contents: JSON.stringify({ version: packageJson.version }),
+    replaceModule.push({
+      module: path.join(PROJECT_ROOT, "package.json"),
+      text: JSON.stringify({ version: packageJson.version }),
       loader: "json",
-    };
+    });
 
     // Replace parser getters with `undefined`
     for (const file of [
@@ -128,11 +134,14 @@ function* getEsbuildOptions(bundle, buildOptions) {
       "src/language-markdown/parsers.js",
       "src/language-yaml/parsers.js",
     ]) {
-      replaceModule[path.join(PROJECT_ROOT, file)] = EMPTY_MODULE_REPLACEMENT;
+      replaceModule.push({ module: path.join(PROJECT_ROOT, file), text: "" });
     }
 
     // Prevent `esbuildPluginNodeModulePolyfills` include shim for this module
-    replaceModule.assert = require.resolve("./shims/assert.cjs");
+    replaceModule.push({
+      module: "assert",
+      path: require.resolve("./shims/assert.cjs"),
+    });
   }
 
   let shouldMinify = buildOptions.minify;
@@ -147,13 +156,10 @@ function* getEsbuildOptions(bundle, buildOptions) {
     metafile: true,
     plugins: [
       esbuildPluginEvaluate(),
-      esbuildPluginReplaceModule({ ...replaceModule, ...bundle.replaceModule }),
-      bundle.target === "universal" && esbuildPluginNodeModulePolyfills(),
-      esbuildPluginTextReplace({
-        include: /\.[cm]?js$/,
-        // TODO[@fisker]: Use RegExp when possible
-        pattern: Object.entries({ ...replaceStrings, ...bundle.replace }),
+      esbuildPluginReplaceModule({
+        replacements: [...replaceModule, ...(bundle.replaceModule ?? [])],
       }),
+      bundle.target === "universal" && esbuildPluginNodeModulePolyfills(),
       buildOptions.onLicenseFound &&
         esbuildPluginLicense({
           cwd: PROJECT_ROOT,
@@ -164,19 +170,21 @@ function* getEsbuildOptions(bundle, buildOptions) {
         }),
       buildOptions.reports &&
         esbuildPluginVisualizer({ formats: buildOptions.reports }),
+      esbuildPluginThrowWarnings(),
     ].filter(Boolean),
     minify: shouldMinify,
     legalComments: "none",
-    external: [...(bundle.external || [])],
+    external: [...(bundle.external ?? [])],
     // Disable esbuild auto discover `tsconfig.json` file
     tsconfig: path.join(__dirname, "empty-tsconfig.json"),
-    mainFields: ["main"],
-    target: ["node10"],
+    target: [...(bundle.esbuildTarget ?? ["node10"])],
     logLevel: "error",
   };
 
   if (bundle.target === "universal") {
-    esbuildOptions.target.push(...umdTarget);
+    if (!bundle.esbuildTarget) {
+      esbuildOptions.target.push(...umdTarget);
+    }
 
     yield {
       ...esbuildOptions,
@@ -196,12 +204,8 @@ function* getEsbuildOptions(bundle, buildOptions) {
       };
     }
   } else {
-    esbuildOptions.external.push(
-      ...builtinModules,
-      ...bundles
-        .filter((item) => item.input !== bundle.input)
-        .map((item) => `./${item.output}`)
-    );
+    esbuildOptions.platform = "node";
+    esbuildOptions.external.push(...bundledFiles.map(({ output }) => output));
 
     yield {
       ...esbuildOptions,
@@ -212,7 +216,7 @@ function* getEsbuildOptions(bundle, buildOptions) {
 }
 
 async function runBuild(bundle, esbuildOptions, buildOptions) {
-  if (!buildOptions.babel) {
+  if (!buildOptions.babel || bundle.skipBabel) {
     await esbuild.build(esbuildOptions);
     return;
   }
@@ -224,6 +228,7 @@ async function runBuild(bundle, esbuildOptions, buildOptions) {
     plugins: plugins.filter(({ name }) => name !== "umd"),
     format: format === "umd" ? "cjs" : format,
     minify: false,
+    target: undefined,
   });
 
   const text = await fs.readFile(outfile);
@@ -237,7 +242,9 @@ async function runBuild(bundle, esbuildOptions, buildOptions) {
   await esbuild.build({
     ...esbuildOptions,
     define: {},
-    plugins: plugins.filter(({ name }) => name === "umd"),
+    plugins: plugins.filter(
+      ({ name }) => name === "umd" || name === "throw-warnings"
+    ),
     entryPoints: [outfile],
     allowOverwrite: true,
   });

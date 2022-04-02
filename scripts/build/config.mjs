@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createRequire } from "node:module";
 import createEsmUtils from "esm-utils";
+import { PROJECT_ROOT } from "../utils/index.mjs";
 
 const { require } = createEsmUtils(import.meta);
 
@@ -88,6 +89,24 @@ const parsers = [
         module: "*",
         find: "typescriptVersionIsAtLeast[version] = semverCheck(version);",
         replacement: "typescriptVersionIsAtLeast[version] = true;",
+      },
+      // The next two replacement fixed webpack warning `Critical dependency: require function is used in a way in which dependencies cannot be statically extracted`
+      // #12338
+      {
+        module: require.resolve(
+          "@typescript-eslint/typescript-estree/dist/create-program/shared.js"
+        ),
+        find: "moduleResolver = require(moduleResolverPath);",
+        replacement: "throw new Error('Dynamic require is not supported');",
+      },
+      {
+        module: require.resolve("typescript"),
+        process(text) {
+          return text.replace(
+            /(?<=\n)(?<indentString>\s+)function tryGetNodePerformanceHooks\(\) {.*?\n\k<indentString>}(?=\n)/s,
+            "function tryGetNodePerformanceHooks() {}"
+          );
+        },
       },
 
       ...Object.entries({
@@ -178,12 +197,21 @@ const parsers = [
   {
     input: "src/language-css/parser-postcss.js",
     replaceModule: [
+      // `postcss-values-parser` uses constructor.name, it will be changed by bundler
+      // https://github.com/shellscape/postcss-values-parser/blob/c00f858ab8c86ce9f06fdb702e8f26376f467248/lib/parser.js#L499
       {
-        // `postcss-values-parser` uses constructor.name, it will be changed by bundler
-        // https://github.com/shellscape/postcss-values-parser/blob/c00f858ab8c86ce9f06fdb702e8f26376f467248/lib/parser.js#L499
         module: require.resolve("postcss-values-parser/lib/parser.js"),
         find: "node.constructor.name === 'Word'",
         replacement: "node.type === 'word'",
+      },
+      // The following two replacements prevent load `source-map` module
+      {
+        module: require.resolve("postcss/lib/previous-map.js"),
+        text: "module.exports = class {};",
+      },
+      {
+        module: require.resolve("postcss/lib/map-generator.js"),
+        text: "module.exports = class { generate() {} };",
       },
     ],
   },
@@ -207,13 +235,6 @@ const parsers = [
   },
   {
     input: "src/language-yaml/parser-yaml.js",
-    replaceModule: [
-      // Use `tslib.es6.js`, so we can avoid `globalThis` shim
-      {
-        module: require.resolve("tslib"),
-        path: require.resolve("tslib").replace(/tslib\.js$/, "tslib.es6.js"),
-      },
-    ],
   },
 ].map((bundle) => {
   const { name } = bundle.input.match(
@@ -238,6 +259,18 @@ const coreBundles = [
         module: require.resolve("@iarna/toml/lib/toml-parser.js"),
         find: "const utilInspect = eval(\"require('util').inspect\")",
         replacement: "const utilInspect = require('util').inspect",
+      },
+      // `editorconfig` use a older version of `semver` and only uses `semver.gte`
+      {
+        module: require.resolve("editorconfig"),
+        find: 'var semver = __importStar(require("semver"));',
+        replacement: `
+          var semver = {
+            gte: require(${JSON.stringify(
+              require.resolve("semver/functions/gte")
+            )})
+          };
+        `,
       },
       replaceDiffPackageEntry("lib/diff/array.js"),
     ],
@@ -264,6 +297,11 @@ const coreBundles = [
         path: require.resolve("./shims/chalk.cjs"),
       },
       replaceDiffPackageEntry("lib/diff/array.js"),
+      {
+        module: path.join(PROJECT_ROOT, "src/main/parser.js"),
+        find: "return requireParser(opts.parser);",
+        replacement: "",
+      },
     ],
   },
   {
